@@ -1,3 +1,5 @@
+// IT'S ONLY USE FOR ANDROID.
+// FOR OLD VERSION HSP3DISH ANDROID BUG.
 *Chk_Load_And
 sdim ChkPoint0,20000
 sdim ChkPoint1,20000
