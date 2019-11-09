@@ -1,0 +1,226 @@
+#packopt name "EventEditor"
+
+#ifdef _Debug
+	dir=dir_cur
+#else
+	dir=dir_exe
+#endif
+
+#module
+	#deffunc BitPeekO var out,var _dat, int _n
+	//p1変数のp2 bit目を参照します。
+	//p2は0から開始します。
+	//返り値は0かそれ以外です。1以外が返る場合に注意してください。
+		_Chk =_n>>3
+		_Chkn =_n-(_Chk<<3)
+		out = peek(_dat,_Chk) and 1<<_Chkn
+		return
+#global
+#module
+	#deffunc BitPokeO var _dat, int _n, int _f
+	//p1変数のp2 bit目を変更します。
+	//p2は0から開始します。
+	//p3には0かそれ以外を指定して、off/onとします。
+		_Chk =_n>>3
+		_Chkn =_n-(_Chk<<3)
+		if _f{
+			poke _dat,_Chk,peek(_dat,_CHk) or 1<<_Chkn
+		}else{
+			poke _dat,_Chk,peek(_dat,_CHk) and 1<<_Chkn xor peek(_dat,_Chk)
+		}
+		return
+	//"BitPokeO _a,0,1"を実行すると_aは1に、"BitPokeO _a,8,1"では256になります。
+#global
+
+MAXITEM = 16
+
+NOW_I_NO=-1
+NOW_S_NO=-1
+NOW_C_NO=-1
+NOW_SW_NO=-1
+NOW_COMMAND_NO=0
+
+command="use\nusef\nsw\nescape\nuseescape\nmove"
+
+screen 0,200,450,0,0,0
+sdim GameList,1024*32
+dirlist GameList,"*",5
+objsize 200,400
+listbox GameNo,0,GameList
+objsize 200,20
+button goto "LoadGame",*load
+button goto "RUN",*run_game
+
+stop
+
+*Load
+	notesel GameList
+	Noteget Name,GameNo
+	chdir dir+"\\"+Name
+	exist "Image.txt"
+	if strsize=-1:dialog "Image.txtが存在しません":stop
+	exist "Item.txt"
+	if strsize=-1:dialog "Item.txtが存在しません":stop
+	exist "Check.txt"
+	if strsize=-1:dialog "Check.txtが存在しません":stop
+	exist "Sound.txt"
+	if strsize=-1:dialog "Sound.txtが存在しません":stop
+	notesel Image
+	Noteload "Image.txt"
+		noteget tempA,0
+		repeat int(tempA)
+			buffer 100+cnt,400,400
+			noteget tempB,cnt+1
+			picload tempB
+		loop
+		notedel 0	//ファイル数削除
+		gsel 0
+	notesel Item
+	Noteload "Item.txt"
+		sdim SW,1024*32
+		dim Item_SW,MAXITEM,2	;on,off sw
+		val = notefind("[SW]",0)
+		if val!-1{
+			//SW読み込み
+			repeat
+				noteget tempA,val+cnt+1
+				if tempA="[EOF]":break
+				notesel SW
+					noteadd ""+cnt+":-:"+tempA
+					noteunsel
+			loop
+		}
+		repeat notemax
+			noteget tempA,cnt
+			if tempA="[EOF]"{
+				tempE=cnt
+				repeat (notemax-tempE)
+					notedel tempE
+				loop
+				break
+			}
+			split tempA,",",tempB,tempC,tempD
+			buffer 200+cnt,400,400
+			picload tempB
+			Item_SW(cnt,0)=int(tempC)
+			Item_SW(cnt,1)=int(tempD)
+			notesel SW
+					noteadd ""+(100+cnt)+":-:"+tempB
+					noteunsel
+		loop
+		notesel SW
+		noteadd "-1:-:選択なし",0
+		noteunsel
+	notesel Check
+	noteload "Check.txt"
+		repeat notemax
+			noteget tempA,cnt
+			if tempA="[EOF]"{
+				tempE=cnt
+				repeat (notemax-tempE)
+					notedel tempE
+				loop
+				break
+			}
+			split tempA,",",tempB,tempC,tempD
+			buffer 300+cnt,400,400
+			sdim tempvar,200000
+			sdim ChkTemp,200000
+			bload tempB,tempvar
+			repeat strsize/8
+			t1=Lpeek(tempvar,0+(cnt*8)):t2=Lpeek(tempvar,4+(cnt*8))
+			repeat t2:BitPokeO ChkTemp,t1+cnt,1:loop
+			loop
+			color 0,0,0:boxf:color 0,0,255
+			repeat 400*400
+				BitPeekO CJ,chktemp,cnt
+				if CJ!0:pset (cnt\400),(cnt/400)
+			loop
+		loop
+	notesel Sound
+	noteload "Sound.txt"
+		repeat notemax
+			noteget tempA,cnt
+			if tempA="[EOF]"{
+				tempE=cnt
+				repeat (notemax-tempE)
+					notedel tempE
+				loop
+				break
+			}
+			mmload tempA,cnt
+		loop
+	
+	screen 1,400,450,4,210,0	//ゲーム画面
+	screen 2,200,450,4,620,0	//Image
+		objsize 200,400
+		listbox ImageNo,0,Image
+	screen 3,200,450,4,830,0	//Check
+		objsize 200,400
+		listbox CheckNo,0,Check
+	screen 4,200,450,4,1040,0	//Sound
+		objsize 200,400
+		listbox SoundNo,0,Sound
+		objsize 200,20
+		button goto "Play",*PlaySound
+	screen 5,200,450,4,1250,0	//SW
+		objsize 200,400
+		listbox SW_NO,0,SW
+	screen 6,200,200,4,1460,0	//COMMAND
+		objsize 200,200
+		listbox CommandNo,0,command
+	screen 7,800,40,4,0,480	//Text
+		sdim Text,1024*32
+		mesbox Text,800,40,1
+		MSGID=stat
+	goto *main
+
+*main
+	edit=0
+	if NOW_I_NO!ImageNo:NOW_I_NO=ImageNo:Edit=1
+	if NOW_S_NO!SoundNo:NOW_S_NO=SoundNo:Edit=1
+	if NOW_C_NO!CheckNo:NOW_C_NO=CheckNo:Edit=1
+	if NOW_SW_NO!SW_NO:NOW_SW_NO=SW_NO:Edit=1
+	if NOW_COMMAND_NO!CommandNo:NOW_COMMAND_NO=CommandNO:Edit=1
+	if edit=1:gosub *make_txt
+	gsel 1
+	redraw 0
+		gmode 0,,,255
+		color 0,0,0:boxf
+		pos 0,0
+		gcopy 100+ImageNo,0,0,400,400
+		if SW_ID>99{
+			pos ((SW_ID-100)\8)*50,400
+			gzoom 50,50,200+(SW_ID-100),0,0,400,400
+		}
+	
+		pos 0,0:gmode 4,,,128:color 0,0,0
+		gcopy 300+NOW_C_NO,0,0,400,400
+	redraw 1
+	await 33
+	goto *main
+	
+*playSound
+	mmplay SoundNo
+	goto *main
+	
+*make_txt
+	notesel Command
+	noteget tempA,CommandNo
+	notesel SW
+	noteget tempB,SW_NO
+	split tempB,":-:",tempB
+	SW_ID=int(tempB)
+	if SW_ID>99{
+		text=""+CheckNo+","+tempA+","+tempB+",-1,this,"+SoundNo+",-1(SW)"
+	} else {
+		text=""+CheckNo+","+tempA+",-1,-1,this,"+SoundNo+","+tempB
+	}
+	gsel 7
+	objprm MSGID,text
+	gsel 1
+	return
+	
+*run_game
+	exec dir+"\\dkengine.exe "+dir+"\\"+Name
+	goto *main

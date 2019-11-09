@@ -1,0 +1,183 @@
+/*
+	ウィンドウにD&D→簡易圧縮状態".check"ファイル出力
+	exeに(コマンドライン)入力→未圧縮".*.check"ファイル出力
+*/
+
+#packopt hide 1
+#packopt name "chk2img"
+
+#uselib "shell32.dll"
+#func DragAcceptFiles "DragAcceptFiles" int,int
+#func DragQueryFile   "DragQueryFileA"  int,int,int,int
+#func DragQueryPoint  "DragQueryPoint"  int,int
+#func DragFinish      "DragFinish"      int
+#define WM_DROPFILES    0x0233
+
+#module asaw
+
+	#deffunc AddText int hand,var textvar,str text
+
+		if strlen(textvar)>1024*30:textvar=""
+		//一応30KB超えたら速度の問題上良くないので初期化。
+		textvar+=text+"\n"
+		
+		objprm hand,textvar
+		
+		s2=objinfo(hand,2)
+		sendmsg s2, $ba,0,0:lineA=stat
+		sendmsg s2, $bb,lineA,0:index=stat
+		sendmsg	s2,	$b1,index-1,index	//選択範囲を設定
+		sendmsg	s2,	$b7					//キャレットを画面内に持ってくる
+		objsel hand						//フォーカス指定
+		
+	return
+	
+#global
+
+#module
+	#deffunc BitPokeO var _dat, int _n, int _f
+	//p1変数のp2 bit目を変更します。
+	//p2は0から開始します。
+	//p3には0かそれ以外を指定して、off/onとします。
+		_Chk =_n>>3
+		_Chkn =_n-(_Chk<<3)
+		if _f{
+			poke _dat,_Chk,peek(_dat,_CHk) or 1<<_Chkn
+		}else{
+			poke _dat,_Chk,peek(_dat,_CHk) and 1<<_Chkn xor peek(_dat,_Chk)
+		}
+		return
+	//"BitPokeO _a,0,1"を実行すると_aは1に、"BitPokeO _a,8,1"では256になります。
+#global
+#module
+	#defcfunc BitPeekO var _dat, int _n
+	//p1変数のp2 bit目を参照します。
+	//p2は0から開始します。
+	//返り値は0かそれ以外です。1以外が返る場合に注意してください。
+		_Chk =_n>>3
+		_Chkn =_n-(_Chk<<3)
+		return peek(_dat,_Chk) and 1<<_Chkn
+#global
+
+//ここまでコンパイラ用設定、関数、命令定義。
+
+
+screen 0,600,400,0
+	cls 1
+	title "実行結果"
+	objmode 2
+
+	font "ＭＳ ゴシック",14,0
+	pos 153,9
+	mes "ここにD&Dしてください。"
+
+	font "ＭＳ ゴシック",12,0
+	pos 5,31
+	
+	mesbox1="ここに実行結果を表示します。"
+	mesbox mesbox1,590,360,0
+	MSGID=STAT
+
+	oncmd gosub *OnDropFiles,WM_DROPFILES
+	DragAcceptFiles hwnd, 1
+	
+	sdim tempvar,400*400
+
+*make_fileopen
+	gosub *cmd2list
+	if list="":goto *stopmain
+	notesel list
+	repeat notemax
+		notesel list
+		noteget filename,cnt
+		name=getpath(filename,1)
+		AddText MSGID,mesbox1,""
+		AddText MSGID,mesbox1,"非圧縮処理"
+		AddText MSGID,mesbox1,"OpenFile "+filename
+		//実処理
+		buffer 1,400,400
+		bload filename,tempvar
+		color 255,255,255:boxf:	color 0,255,255
+		repeat 400*400
+			t3=BitPeekO(tempvar,cnt)
+			if t3!0:pset cnt\400,cnt/400
+		loop
+		bmpsave ""+name+".bmp"
+		//ここまで
+		gsel 0
+		AddText MSGID,mesbox1,"SaveFile "+filename+".check"
+	loop
+
+*stopmain
+	stop
+
+//ここまで通常。この下からサブルーチン。
+
+*cmd2list
+	list="":hh=""
+	
+	w=dir_cmdline:val = strlen(w):valA = instr(w,0,"\"")
+	if valA!-1{repeat
+	wait 1
+	if size>=val:break
+	getstr p2,w,size,'\"'
+	size+=strsize
+	if strsize=0:continue
+	if strsize<=3:continue
+	if p2=" ":continue
+	notesel hh
+	noteadd p2
+	loop
+} else {
+	repeat
+	wait 5
+	if size>=val:break
+	getstr p2,w,size,' '
+	size+=strsize
+	if strsize=0:continue
+	if strsize<=3:continue
+	if p2=" ":continue
+	notesel hh
+	noteadd p2
+	loop
+}
+
+	notesel hh
+	
+	repeat notemax
+	noteget a,cnt
+	a = strtrim(a,1):a = strtrim(a,0,34)
+	b = getpath(a,0)
+	notesel list
+	noteadd b
+	noteunsel
+	loop
+	return
+
+
+*OnDropFiles
+	hdrop = wParam                  ; ドロップファイル情報のハンドル
+	DragQueryFile hdrop, -1, 0, 0
+	ndrop = stat                    ; ファイルの数
+
+	repeat ndrop
+		sdim filename, 260
+		DragQueryFile hdrop,cnt, varptr(filename), 260
+		AddText MSGID,mesbox1,""
+		AddText MSGID,mesbox1,"簡易圧縮処理"
+		AddText MSGID,mesbox1,"OpenFile "+filename
+		name=getpath(filename,1)
+		buffer 1,400,400
+		color 255,255,255:boxf:color 0,255,255
+		bload filename,tempvar
+		repeat strsize/8
+			t1=Lpeek(tempvar,0+(cnt*8)):t2=Lpeek(tempvar,4+(cnt*8))
+			repeat t2:pset (t1+cnt)\400,(t1+cnt)/400:loop
+		loop
+		bmpsave ""+name+".bmp"
+		gsel 0
+		AddText MSGID,mesbox1,"SaveFile "+filename+".check"
+	loop
+	
+	DragFinish hdrop
+return

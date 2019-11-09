@@ -1,0 +1,288 @@
+/*
+// dkengine2アドベンチャーゲームモジュール
+// CopyRight Darakeguma All Rights Reserved.
+
+// バッファ予約500 - 999
+// 950 ~ 999はシステム予約
+// 変数はほぼ全てmodule内変数を使用
+// 現時点では画像などのプリロード機能は手動、今後自動ロードを検討する
+*/
+
+/*
+// ADVシナリオファイル書式等
+// ファイル形式は通常テキストファイル、エンコーディングは未指定、ASCIIコードのみ
+
+// [IMG_BG][/IMG_BG]間に画像ファイルを記載する ID,ファイル名,SizeX,SizeY 形式、最大50枚
+// [IMG_CG][/IMG_CG]間に画像ファイルを記載する ID,ファイル名,SizeX,SizeY 形式、最大150枚
+// [IMG_CHARACTER][/IMG_CHARACTER]間に画像ファイルを記載する ID(~10),差分ID(~10),ファイル名,SizeX,SizeY 形式、最大250枚
+// [SCENE][/SCENE]間にテキストファイルを記載する シーン名,ファイル名UTF8,ファイル名SJIS
+//   * 本番とデバック時の切り替えを不要にするためどちらも記載
+//   * 呼び出し時はシーン名で呼び出す
+*/
+
+/*
+// 命令一覧
+// 初期化  initDk2Adv
+// 作画    advDraw
+//
+*/
+
+/*
+// サブルーチン一覧
+// メインループ *main_dk2_adv
+//   Now_Scene にシーン名を設定して呼び出す
+*/
+
+#include "mod.hsp"
+
+// 個別実装サブルーチン
+#ifndef _DK2_ADV_MODULE_
+#module _DK2_ADV_MODULE_
+
+#define BG_IMAGE_BUFFER 500
+#define CG_IMAGE_BUFFER 550
+#define CH_IMAGE_BUFFER 700
+
+  // 指定ファイルからADV機能を初期化します。
+  #deffunc initDk2Adv str filename
+     dim bg,50,2  // (ID),X,Y
+     dim cg,150,2 // (ID),X,Y
+     dim ch,10,10,3 //(キャラID,差分),ID,X,Y
+
+     notesel advFileText
+     noteload filename
+
+     repeat notemax
+       await 0
+       noteget text,cnt
+       if (text = "[IMG_BG]") : loadBg cnt : continue
+       if (text = "[IMG_CG]") : loadCg cnt : continue
+       if (text = "[IMG_CHARACTER]") : loadCh cnt : continue
+ 		 loop
+
+     buffer 950,400,200
+     picload "border.png"
+
+     noteunsel
+  return
+
+  #deffunc loadBg int count
+    bCnt = 1
+    repeat
+      await 0
+      noteget text,count + bCnt
+      if (text = "[/IMG_BG]") : break
+      strSplit text,",",txt
+      id = int(txt(0))
+      bg(id,0) = int(txt(2))
+      bg(id,1) = int(txt(3))
+      buffer BG_IMAGE_BUFFER + id , bg(id,0) , bg(id,1)
+      picload txt(1)
+      bCnt++
+    loop
+  return
+
+  #deffunc loadCg int count
+    bCnt = 1
+    repeat
+      await 0
+      noteget text,count + bCnt
+      if (text = "[/IMG_CG]") : break
+      strSplit text,",",txt
+      id = int(txt(0))
+      cg(id,0) = int(txt(2))
+      cg(id,1) = int(txt(3))
+      buffer CG_IMAGE_BUFFER + id , cg(id,0) , cg(id,1)
+      picload txt(1)
+      bCnt++
+    loop
+  return
+
+  #deffunc loadCh int count
+    loadedChar = 0
+
+    bCnt = 1
+    repeat
+      await 0
+      noteget text,count + bCnt
+      if (text = "[/IMG_CHARACTER]") : break
+      strSplit text,",",txt
+      id = int(txt(0))
+      idFace = int(txt(1))
+      ch(id,idFace,0) = loadedChar
+      ch(id,idFace,1) = int(txt(3))
+      ch(id,idFace,2) = int(txt(4))
+      #ifdef __hsp3dish__
+        screen CH_IMAGE_BUFFER + loadedChar , ch(id,idFace,1) , ch(id,idFace,2)
+      #else
+        buffer CH_IMAGE_BUFFER + loadedChar , ch(id,idFace,1) , ch(id,idFace,2)
+      #endif
+      picload txt(2)
+      loadedChar++
+      bCnt++
+    loop
+  return
+
+  #deffunc loadScenario str name
+    notesel advFileText
+    repeat notemax
+      await 0
+      noteget text,cnt
+      strSplit text,",",txt
+      if (txt(0) = name){
+          scText = ""
+          notesel scText
+          // デバック時はSJISのファイルを、そうでない場合はUTF8のファイルを読み込む
+          #ifdef _debug
+          	noteload txt(2)
+          #else
+            noteload txt(1)
+          #endif
+          noteunsel
+        break
+      }
+    loop
+    noteunsel
+
+    scNowLine = -1
+    sdim scNowLineTxt //画面に表示する文字列
+    scNowDispCharCnt = 0
+    dim scNowDispChar,5,6 //(表示順),キャラID,差分ID,X,Y,SX,SY
+    scNowDispBg = 0
+    scNowDispCg = 0
+    // 名前表示用
+    scDispName = ""
+
+    // 次の行の読み込み
+    nextLine
+
+  return
+
+  #deffunc nextLine
+    notesel scText
+    repeat notemax - scNowLine , scNowLine + 1
+      nowLineCnt = cnt
+      noteget text,cnt
+      // 最初の文字が[であった場合は制御命令
+      st = strmid(text,0,1)
+      if (st = "["){
+        strSplit text,",",txt
+        // 立ち絵表示
+        if (txt(0) = "[CH"){
+          id = int(txt(1))
+          idFace = int(txt(2))
+            // 該当のキャラが存在するか確認
+            i = 5
+            repeat 5
+              if (scNowDispChar(cnt,0) = id){
+                i = cnt
+                break
+              }
+            loop
+            if (i = 5){
+              i = scNowDispCharCnt
+              // キャラID設定
+              scNowDispChar(i,0) = id
+              scNowDispCharCnt++
+            }
+          scNowDispChar(i,1) = idFace
+          scNowDispChar(i,2) = int(txt(3))
+          scNowDispChar(i,3) = int(txt(4))
+          scNowDispChar(i,4) = int(txt(5))
+          scNowDispChar(i,5) = int(txt(6))
+          continue
+        }
+        if (txt(0) = "[NAME"){
+          scDispName = txt(1)
+          continue
+        }
+        // TODO 背景やＣＧなどの表示
+        // コメントなど
+        continue
+      } else {
+        scNowLine = nowLineCnt
+        strSplit text,"<br>",scNowLineTxt
+        break
+      }
+    loop
+    noteunsel
+  return
+
+  #defcfunc isAdvEnd
+    notesel scText
+    noteget text,scNowLine + 1
+    if (text = "[EOF]"){
+      result = 1
+    } else {
+      result = 0
+    }
+    noteunsel
+  return result
+
+  #deffunc drawDk2Adv
+    gmode 3,,,255
+    // 背景
+    pos 0,0
+    gzoom SizeX@,SizeY@,BG_IMAGE_BUFFER + scNowDispBg,0,0,bg(scNowDispBg,0),bg(scNowDispBg,1)
+
+    // キャラ
+    repeat 5
+      //　読み込まれていない
+      if (scNowDispChar(cnt,0) = 0){
+        continue
+      }
+      // 非表示設定
+      if (scNowDispChar(cnt,1) = -1){
+        continue
+      }
+      SX = scNowDispChar(cnt,4)
+      SY = scNowDispChar(cnt,5)
+
+      tempScChId = CH_IMAGE_BUFFER + ch(scNowDispChar(cnt,0),scNowDispChar(cnt,1),0)
+      tempScX = scNowDispChar(cnt,2)
+      tempScY = scNowDispChar(cnt,3)
+      tempScSX = ch(scNowDispChar(cnt,0),scNowDispChar(cnt,1),1)
+      tempScSY = ch(scNowDispChar(cnt,0),scNowDispChar(cnt,1),2)
+      pos tempScX,tempScY
+      if (SX = -1 OR SY = -1){
+        gcopy tempScChId,0,0,tempScSX,tempScSY
+      } else {
+        gzoom SX,SY,tempScChId,0,0,tempScSX,tempScSY
+      }
+    loop
+
+    // 文章
+    color 255,255,255
+    //boxf 0,SizeY@ - 50,SizeX@,SizeY@ + ItemSize@
+    pos 0,SizeY@ - 50
+    gzoom SizeX@,50 + ItemSize@,950,0,0,400,200
+    color 0,0,0
+    pos 5,SizeY@ - 50
+    font "",24
+    mes scDispName
+    font "",18
+    foreach scNowLineTxt
+      pos 5,SizeY@ - 20 + (20 * cnt)
+      mes scNowLineTxt(cnt)
+    loop
+
+    // TODO その他UI
+  return
+
+#global
+
+*main_dk2_adv
+    stick key
+    if (key!0){
+      if (isAdvEnd()) : return
+      nextLine
+    }
+
+    gsel 0
+    redraw 0
+      drawDk2Adv
+    redraw 1
+    await 33
+    goto *main_dk2_adv
+
+#endif

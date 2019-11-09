@@ -1,0 +1,133 @@
+#include "hsp3dish.as"
+#packopt name "dkengine2"
+
+#define UseItem		16
+#define UsePoint	32
+#define MaxSW		100
+
+#define DefaultSizeX 400
+#define DefaultSizeY 400
+
+#define DISP_ITEM_NUM 8
+
+#define MoveBarSize 40
+
+#include "mod.hsp"
+#include "DarakeEngine2_Module.as"
+
+#ifdef _debug
+	chdir dir_cur+"\\data\\"
+#endif
+#ifdef __hsp3dish__
+	setreq SYSREQ_CLSCOLOR ,$000000
+#endif
+
+*init_dk2
+gsel 0
+redraw 0
+	color 255,255,255:boxf:color 0,0,0
+	pos 0,0
+	mes "Now Loading..."
+redraw 1:await 1
+
+// 起動時処理
+  // 設定ファイル読み込み
+	notesel temptxt
+	exist "dkConf.txt"
+	if (strsize!-1) {
+		noteload "dkConf.txt"
+		noteget txt,0:SizeX = int(txt)
+		noteget txt,1:SizeY = int(txt)
+	} else {
+		SizeX = DefaultSizeX
+		SizeY = DefaultSizeY
+	}
+	ItemSize = (SizeX / DISP_ITEM_NUM)
+
+  Buffer 1,60,20		//システムグラフィック読み込み用
+  picload "sys.bmp"	//読み込み
+  Buffer 2,SizeX,SizeY	//メイン画像。タイトルや部屋画像など
+  buffer 3,200,80		//Sound On,Off
+  picload "sound.png"	//読み込み
+
+	//サウンド読み込み
+	notesel temptxt
+	noteload "Sound.txt"
+	repeat notemax
+		noteget txt,cnt
+		if txt="[EOF]":break
+		mmload txt,cnt
+	loop
+// シーン定義ファイル読み込み
+	exist "AdvRes.txt"
+	if (strsize!-1) : initDk2Adv "AdvRes.txt"
+	gosub *init_dk2_escape
+
+// 定義ファイルの内容からADV/ESCAPEの呼び出しを行う
+
+// 親定義サブルーチン
+
+/* ここからタイトル */
+*sc_title
+	gsel 2
+	picload "title.png"
+
+*red_title
+	gsel 0
+	gmode 0
+	redraw 0
+		pos 0,0
+		gcopy 2,0,0,SizeX,SizeY
+		pos SizeX/2 - 100,SizeY / 2
+		if Sound=0:gcopy 3,0,0,200,40:else:gcopy 3,0,40,200,80
+		pos 0,0
+	redraw 1
+
+*sc_title_rep
+	stick key
+	if key!0{
+		_x=mousex:_y=mousey
+		if ChkPos(SizeX/2 - 100,SizeY / 2,SizeX/2 + 100,SizeY / 2 + 40,_x,_y){
+			if sound=0:sound=1:else:sound=0
+			SoundSwitch sound
+			mmplay 0
+			goto *red_title
+		} else {
+			goto *sss
+		}
+	}
+	await 33
+	goto *sc_title_rep
+
+*sss
+	// goto *end_game	// ADBデバック用
+  Now_Room = 1		//現在動作しているルーム
+	goto *reinit_dk2_escape
+/* ここまでタイトル */
+
+*end_game
+	exist "AdvEnd.txt"
+	if strsize!-1:loadScenario "AdvEnd":gosub *main_dk2_adv
+
+	gsel 2
+	exist "ending.png"
+	if strsize!-1:picload "ending.png":else:picload "ending.jpg"
+
+	gsel 0
+	gmode 0
+	redraw 0
+		pos 0,0
+		gcopy 2,0,0,SizeX,SizeY
+	redraw 1
+
+*end_game_rep
+	stick key
+  // TODO
+	if key!0:goto *sc_title
+	await 33
+	goto *end_game_rep
+
+// 各モジュール
+
+#include "DarakeEngine2_ADV_Engine.hsp"
+#include "DarakeEngine2_Escape_Engine.hsp"

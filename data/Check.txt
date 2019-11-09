@@ -1,0 +1,10 @@
+door
+gl
+ham
+hasami
+key
+nok
+nuno
+tree
+tubo
+[EOF]

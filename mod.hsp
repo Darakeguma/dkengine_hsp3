@@ -1,0 +1,69 @@
+#ifndef _strSplit_
+#module _strSplit_
+	#deffunc strSplit str _text, str _separator, array put, local mid
+		sdim put: index = 0: text = _text: separator = _separator
+		repeat: i=cnt
+			mid = instr(text, , separator)
+			if( mid < 0 ){
+				ret = cnt
+				break
+			}
+			put(cnt) = strmid(text, 0, mid)
+			text = strmid(text, mid+strlen(separator), strlen(text))
+		loop
+		put(ret) = text
+	return ret+1
+#global
+#endif
+
+#ifndef _bitPoke_
+#module _bitPoke_
+	#deffunc BitPokeO var _dat, int _n, int _f
+	//p1変数のp2 bit目を変更します。
+	//p2は0から開始します。
+	//p3には0かそれ以外を指定して、off/onとします。
+		_Chk =_n>>3
+		_Chkn =_n-(_Chk<<3)
+		if _f{
+			poke _dat,_Chk,peek(_dat,_CHk) or 1<<_Chkn
+		}else{
+			poke _dat,_Chk,peek(_dat,_CHk) and 1<<_Chkn xor peek(_dat,_Chk)
+		}
+		return
+	//"BitPokeO _a,0,1"を実行すると_aは1に、"BitPokeO _a,8,1"では256になります。
+#global
+#module
+	#deffunc BitPeekO var out,var _dat, int _n
+	//p1変数のp2 bit目を参照します。
+	//p2は0から開始します。
+	//返り値は0かそれ以外です。1以外が返る場合に注意してください。
+		_Chk =_n>>3
+		_Chkn =_n-(_Chk<<3)
+		out = peek(_dat,_Chk) and 1<<_Chkn
+		return
+#global
+#endif
+
+//ここまで掲示板などからの借り物
+#ifndef _darakeModule_
+#module _darakeModule_
+#defcfunc ChkPos int X1,int Y1,int X2,int Y2,int _X,int _Y
+	//選択範囲の枠の中にはいっているか
+		if _X>X1-1 & _X<X2+1{
+			if _Y>Y1-1 & _Y<Y2+1:return 1
+		}
+	return 0
+
+//音を出す出さないを毎回判定すると見づらいので標準命令を置き換え
+#undef mmplay
+#deffunc SoundSwitch int flag
+	Sound = flag
+return
+#deffunc _mplay int ID
+	if Sound!0:return 1
+	mmplay@hsp ID
+	return 0
+#define global mmplay _mplay
+
+#global
+#endif

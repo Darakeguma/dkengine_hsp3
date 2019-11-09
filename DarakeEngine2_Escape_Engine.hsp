@@ -1,0 +1,451 @@
+*init_dk2_escape
+	notesel temptxt
+	noteload "Image.txt"
+	noteget txt,0:MaxImage=int(txt)
+	AllBuffer = UseItem + MaxImage
+	// TODO 画像全部読んでしまっているので、キャッシュを考える
+	repeat AllBuffer,4	//アイテムやクリックポイント用
+		Buffer cnt,SizeX,SizeY
+		if (cnt>UseItem+3){
+			loaded=cnt-(UseItem+3)
+			noteget txt,cnt-(UseItem+3)
+			picload txt
+		}
+	loop
+
+	//アイテム読み込み
+	dim item,UseItem,3	//有効化スイッチ、無効化スイッチ、現在の状態(0=非所持,1=所持,2=使用後)
+	notesel temptxt
+	noteload "Item.txt"
+	repeat notemax
+		noteget text,cnt
+		strSplit text,",",txt
+		if txt="[EOF]":break
+		gsel 4+cnt
+		picload txt
+		item(cnt,0)=int(txt(1))
+		item(cnt,1)=int(txt(2))
+		if item(cnt,0)=-1:item(cnt,2)=1:else:item(cnt,2)=0
+	loop
+
+	//クリックポイント読み込み
+	sdim ChkPoint,SizeX * SizeY / 8,UsePoint	//400x400/(8bit/byte)
+	notesel temptxt
+	noteload "Check.txt"
+	repeat notemax
+		noteget text,cnt
+		strSplit text,",",txt
+		if txt="[EOF]":break
+		;bload txt,ChkPoint(cnt)
+		TempNo=cnt
+		//
+		sdim tempvar,SizeX * SizeY / 8
+		bload txt,tempvar
+		repeat strsize/8
+			t1=Lpeek(tempvar,0+(cnt*8)):t2=Lpeek(tempvar,4+(cnt*8))
+			repeat t2:BitPokeO ChkPoint(TempNo),t1+cnt,1:loop
+		loop
+		//
+		loaded_chk++
+	loop
+
+	dim Realtime,8,5	//ID,SW1,SW2,SW3,Addiction
+	notesel temptxt
+	noteload "Real.txt"
+	repeat notemax
+		noteget text,cnt
+		strSplit text,",",txt
+		if txt="[EOF]":break
+		// SW1,SW2が有効な場合SW3を有効化する
+		if txt="&":Realtime(cnt,0)=1
+		// SW1部屋から(SW0=0:同じ部屋含む,SW0=1:別の部屋)への移動の場合、SW3にSW4を代入する
+		if txt="#":Realtime(cnt,0)=2
+
+		Realtime(cnt,1)=int(txt(1))
+		Realtime(cnt,2)=int(txt(2))
+		Realtime(cnt,3)=int(txt(3))
+		if txt="#":Realtime(cnt,4)=int(txt(4))
+	loop
+
+	return
+
+*reinit_dk2_escape
+	//以下変数
+	repeat UseItem
+		Item(cnt,2)=0
+	loop
+	dim sw,MaxSW		//スイッチ。
+	select_item = 0		//選択中アイテム
+	dim Link,4			//移動ルーム（シナリオファイル）番号、上、下、左、右の順
+	notesel Scenario
+	sdim text,256
+	dim command,UsePoint,7	//行動ID,var1,var2,移動先,サウンドID,スイッチID(=1を代入するスイッチID),チェックポイントNo
+	escape = -1			//脱出フラグ
+
+  goto *move_dk2_escape
+
+*main_dk2_escape
+
+  debug_cnt++
+
+	gsel 0
+	redraw 0
+
+		#ifdef __hsp3dish__
+			gfilter 2
+		#endif
+
+		gmode 0
+		pos 0,0
+		gcopy ImageNo+3+UseItem,0,0,SizeX,SizeY
+
+		// アイテム作画
+		repeat UseItem
+			pos ItemSize*(cnt\DISP_ITEM_NUM),SizeY
+			// 指定IDが登録されていない場合スキップ
+			if (item(cnt,0)==0 && item(cnt,1)==0):continue
+			// まだ入手していない場合
+			if Item(cnt,2)=0{
+				// 有効化スイッチが0より小さい場合有効化
+				if Item(cnt,0)<0:Item(cnt,2)=1:goto *@f
+				// 有効化スイッチが立っていた場合有効化
+				if sw(Item(cnt,0))>0:Item(cnt,2)=1:goto *@f
+			}
+*@
+			// アイテムが有効な場合
+			if Item(cnt,2)=1{
+				// 最後まで有効なら無効化チェックスキップ
+				if Item(cnt,1)<0:goto *@f
+				// 無効化チェック
+				if sw(Item(cnt,1))>0:Item(cnt,2)=2:goto *ii3
+*@
+				// 有効だったら通常作画
+				gmode 0:gzoom ItemSize,ItemSize,4+cnt,0,0,SizeX,SizeY
+				// カレントアイテムの作画完了
+				continue
+			}
+*ii3
+			// 無効の場合
+			if Item(cnt,2)=2{
+				// cntを保持
+				curItemNo = cnt
+				drawFlg = 0
+				// 重なりチェック
+				repeat UseItem/DISP_ITEM_NUM
+					tempNum = cnt*DISP_ITEM_NUM + (curItemNo\DISP_ITEM_NUM)
+					if (tempNum > UseItem - 1) : break
+					if (tempNum <= curItemNo) : break
+					if (Item(tempNum,2) > 0){
+						drawFlg = 1
+						break
+					}
+				loop
+				// 重なっていない場合半透明で作画
+				if drawFlg = 0:gmode 3,,,100:gzoom ItemSize,ItemSize,4+cnt,0,0,SizeX,SizeY
+			}
+		loop
+		// アイテム作画ここまで
+
+		// アイテム自動選択
+		if mousey>(SizeY - 1){
+			repeat UseItem/DISP_ITEM_NUM
+				tempNum = mousex/ItemSize + (cnt*DISP_ITEM_NUM)
+				if (tempNum > UseItem - 1) : break
+
+				if Select_Item!(tempNum)+1{
+					if (Item(tempNum,2)=1){
+						select_item=(tempNum)+1
+						mmplay 0
+						break
+					}
+				}
+			loop
+		}
+
+		// アイテム選択作画
+		if Select_Item>0{
+			if Item(Select_Item-1,2)!1{
+				Select_Item=0
+			} else {
+				gmode 3,,,100
+				pos ((Select_Item-1)\DISP_ITEM_NUM) * ItemSize,SizeY
+				gzoom ItemSize,ItemSize,1,0,0,20,20
+			}
+		}
+
+		// 移動バー作画
+		gmode 3,,,50
+		if (Link(0)>0):pos 0,0		:gzoom SizeX,MoveBarSize,1,0,0,20,20
+		if (Link(1)>0):pos 0,SizeY - MoveBarSize	:gzoom SizeX,MoveBarSize,1,0,0,20,20
+		if (Link(2)>0):pos 0,0		:gzoom MoveBarSize,SizeY,1,0,0,20,20
+		if (Link(3)>0):pos SizeX - MoveBarSize,0	:gzoom MoveBarSize,SizeY,1,0,0,20,20
+
+	redraw 1
+	await 33
+
+	// キー入力チェック
+	stick key
+	if key!0:goto *keychk_dk2_escape
+	if escape=1:goto *end_game
+
+	goto *main_dk2_escape
+
+//以下実動作
+
+*keychk_dk2_escape
+	_x=mousex:_y=mousey:pp=_x+_y*SizeX:DC=-1
+	// 画面外の場合無視
+	if _x<0 or _y<0:goto *main_dk2_escape
+	if _x>(SizeX - 1) or _y>((SizeY + ItemSize) - 1):goto *main_dk2_escape
+
+		// 移動バー
+		if (Link(0)>0):if ChkPos(0,0,SizeX - 1,MoveBarSize - 1,_x,_y):Now_Room=Link(0):mmplay 0:goto *move_dk2_escape
+		if (Link(1)>0):if ChkPos(0,SizeY - MoveBarSize,SizeX - 1,SizeY - 1,_x,_y):Now_Room=Link(1):mmplay 0:goto *move_dk2_escape
+		if (Link(2)>0):if ChkPos(0,0,MoveBarSize - 1,SizeX - 1,_x,_y):Now_Room=Link(2):mmplay 0:goto *move_dk2_escape
+		if (Link(3)>0):if ChkPos(SizeX - MoveBarSize,0,SizeX - 1,SizeY - 1,_x,_y):Now_Room=Link(3):mmplay 0:goto *move_dk2_escape
+
+	// アイテム選択
+	if _y>(SizeY - 1){
+		tempID=_x/ItemSize
+		repeat UseItem/DISP_ITEM_NUM
+			if Item(tempID+cnt*DISP_ITEM_NUM,2)=1:Select_item=(tempID+cnt*DISP_ITEM_NUM)+1:mmplay 0:break
+		loop
+		goto *main_dk2_escape
+	}
+
+	// クリックポイント
+	repeat UsePoint
+		if command(cnt,0)<1:continue
+		BitPeekO ttm,ChkPoint(command(cnt,6)),pp
+		if (ttm!0):DC=cnt:break
+	loop
+	if DC=-1:goto *main_dk2_escape	//どれにもあたってない
+
+	//ここからコマンド動作
+	switch command(DC,0)
+		case 1	//use
+			if command(DC,1)>(MaxSW - 1){
+				if (Select_Item=(command(DC,1)-(MaxSW - 1))){
+					if command(DC,3)> 0:Now_Room=command(DC,3)			//部屋移動
+					if command(DC,4)>-1:mmplay command(DC,4)			//サウンド再生
+					if command(DC,5)>-1:sw(command(DC,5))=1				//sw有効化
+					goto *move_dk2_escape							//選択解除&動作
+				}
+			} else {
+				if (command(DC,1)>-1){
+					if sw(command(DC,1))=command(DC,2){
+						if command(DC,3)> 0:Now_Room=command(DC,3)			//部屋移動
+						if command(DC,4)>-1:mmplay command(DC,4)			//サウンド再生
+						if command(DC,5)>-1:sw(command(DC,5))=1				//sw有効化
+						goto *move_dk2_escape							//選択解除&動作
+					}
+				}
+			}
+		swbreak
+		case 2	//sw
+			sw(command(DC,1))=command(DC,2)	//スイッチ操作
+			if command(DC,3)> 0:Now_Room=command(DC,3)			//部屋移動
+			if command(DC,4)>-1:mmplay command(DC,4)			//サウンド再生
+			if command(DC,5)>-1:sw(command(DC,5))=1				//sw有効化
+			goto *move_dk2_escape							//選択解除&動作
+		swbreak
+		case 3	//escape
+			escape=1
+			if command(DC,4)>-1:mmplay command(DC,4)			//サウンド再生
+		swbreak
+		case 4	//useescape
+			if command(DC,1)>(MaxSW - 1){
+				if (Select_Item=(command(DC,1)-(MaxSW - 1))){
+					escape=1
+					if command(DC,4)>-1:mmplay command(DC,4)			//サウンド再生
+				}
+			} else {
+				if (command(DC,1)>-1){
+					if sw(command(DC,1))=command(DC,2){
+						escape=1
+						if command(DC,4)>-1:mmplay command(DC,4)			//サウンド再生
+					}
+				}
+			}
+		swbreak
+		case 5	//move
+			if command(DC,3)> 0:Now_Room=command(DC,3)			//部屋移動
+			if command(DC,4)>-1:mmplay command(DC,4)			//サウンド再生
+			if command(DC,5)>-1:sw(command(DC,5))=1				//sw有効化
+			goto *move_dk2_escape							//選択解除&動作
+		swbreak
+		case 6
+			if command(DC,1)>(MaxSW - 1){
+				if (Select_Item=(command(DC,1)-(MaxSW - 1))){
+					if command(DC,4)>-1:mmplay command(DC,4)			//サウンド再生
+							repeat 30
+								gsel 0
+								redraw 0
+								#ifdef __hsp3dish__
+										gfilter 2
+								#endif
+								gmode 0
+								pos 0,0
+								gcopy ImageNo+3+UseItem,0,0,SizeX,SizeY
+								gmode 3,,,255/30*cnt
+								gzoom SizeX,SizeY,1,25,5,10,10
+								;getreq time,SYSREQ_TIMER
+								;FPS=1000/(time-timeRR):timeRR=time
+								redraw 1
+								await 33
+							loop
+					f_flag=1											//移動後フェードフラグ
+					if command(DC,5)>-1:sw(command(DC,5))=1				//sw有効化
+					if command(DC,3)> 0:Now_Room=command(DC,3)			//部屋移動
+					goto *move_dk2_escape							//選択解除&動作
+				}
+			} else {
+				if (command(DC,1)>-1){
+					if sw(command(DC,1))=command(DC,2){
+						if command(DC,4)>-1:mmplay command(DC,4)			//サウンド再生
+							repeat 30
+								gsel 0
+								redraw 0
+								#ifdef __hsp3dish__
+										gfilter 2
+								#endif
+								gmode 0
+								pos 0,0
+								gcopy ImageNo+3+UseItem,0,0,SizeX,SizeY
+								gmode 3,,,255/30*cnt
+								gzoom SizeX,SizeY,1,25,5,10,10
+								;getreq time,SYSREQ_TIMER
+								;FPS=1000/(time-timeRR):timeRR=time
+								redraw 1
+								await 33
+							loop
+						f_flag=1											//移動後フェードフラグ
+						if command(DC,5)>-1:sw(command(DC,5))=1				//sw有効化
+						if command(DC,3)> 0:Now_Room=command(DC,3)			//部屋移動
+						goto *move_dk2_escape							//選択解除&動作
+					}
+				}
+			}
+		swbreak
+		default
+		swbreak
+	swend
+
+	//ここまでコマンド動作
+	goto *main_dk2_escape
+
+
+*afade
+	repeat 30
+
+	gsel 0
+	redraw 0
+		#ifdef __hsp3dish__
+			gfilter 2
+		#endif
+		gmode 0
+		pos 0,0
+		gcopy ImageNo+3+UseItem,0,0,SizeX,SizeY
+		gmode 3,,,255-(255/30*cnt)
+		gzoom SizeX,SizeY,1,25,5,10,10
+
+		;getreq time,SYSREQ_TIMER
+		;FPS=1000/(time-timeRR):timeRR=time
+		;pos 0,0:mes "FPS="+FPS;+":_x="+_x+":_y="+_y
+
+	redraw 1
+	await 33
+
+	loop
+	goto *main_dk2_escape
+
+*move_dk2_escape
+	//まずスイッチの確認
+	repeat 8
+		// &
+		if Realtime(cnt,0)=1{
+			if SW(Realtime(cnt,1))!0 && SW(Realtime(cnt,2))!0 {
+				SW(Realtime(cnt,3))=1
+			}
+		}
+		// #
+		if Realtime(cnt,0)=2{
+			//別の部屋への移動のみ
+			if Realtime(cnt,2)=1{
+				// 元居る部屋がSW1か否か
+				if Loaded=Realtime(cnt,1){
+					// 違う部屋への移動　かつ　移動先が"this"でない場合
+					if Loaded!Now_Room && Now_Room>0{
+						// スイッチの有効化(SW3にAddictionを代入)
+						SW(Realtime(cnt,3))=Realtime(cnt,4)
+					}
+				}
+			} else {
+				//その部屋での動作も含む
+				if Loaded=Realtime(cnt,1){
+					// スイッチの有効化(SW3にAddictionを代入)
+					SW(Realtime(cnt,3))=Realtime(cnt,4)
+				}
+			}
+		}
+	loop
+	//ルーム移動時のファイル読み込み及び動作
+	if Now_Room<1:Now_Room=Loaded	//thisとか無指定用
+	noteload ""+Now_Room+".txt"
+	Loaded = Now_Room
+	repeat notemax
+		noteget text,cnt
+		strSplit text,",",txt
+		if (int(txt(0))=-1)		:	loadfile = txt(1)	:	break
+		if sw(int(txt(0)))=1	:	loadfile = txt(1)	:	break
+	loop
+	noteload loadfile
+		noteget filename,0
+		ImageNo=int(filename)
+		noteget text,1
+		strSplit text,",",txt
+		repeat 4:Link(cnt)=int(txt(cnt)):loop
+
+		dim command,UsePoint,7	//行動ID,var1,var2,移動先,サウンドID,スイッチID(=1を代入するスイッチID),チェックポイントNo
+		repeat notemax-2
+			noteget text,2+cnt
+			strSplit text,",",txt
+			if txt="[EOF]":break
+
+			command(cnt,6)=int(txt(0))	//チェックポイントID
+			if txt(1)="use"			:	command(cnt,0)=1
+			if txt(1)="sw"			:	command(cnt,0)=2
+			if txt(1)="escape"		:	command(cnt,0)=3
+			if txt(1)="useescape"	:	command(cnt,0)=4
+			if txt(1)="move"		:	command(cnt,0)=5
+			if txt(1)="usef"		:	command(cnt,0)=6
+			command(cnt,1)=int(txt(2))
+			command(cnt,2)=int(txt(3))
+			if txt(4)="this"{
+				command(cnt,3)=0
+			} else {
+				command(cnt,3)=int(txt(4))
+			}
+			command(cnt,4)=int(txt(5))
+			command(cnt,5)=int(txt(6))
+		loop
+
+	if f_flag>0:f_flag=0:gosub *afade
+
+	goto *main_dk2_escape
+
+/*
+
+	コマンドIDについて。
+	シナリオファイルを見やすく（判断しやすく）するためテキスト指定で行うが内部的には数値管理。
+	1	use
+	2	sw
+	3	escape
+	4	useescape
+	5	move
+	6	usef
+	全て小文字で指定する。
+
+	なお、use系のアイテムID指定はswとの混同を避けるためアイテムID+MaxItemで指定する。
+
+*/
